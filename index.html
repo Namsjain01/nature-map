@@ -356,6 +356,66 @@ $('enter').onclick = () => {
 };
 if (PARAMS.get('embed') === '1') $('intro').remove();
 
+/* ── Live data from a Google Sheet (optional but recommended) ──
+   Setup once:
+   1. Import 2026-07-03-experiences-data.csv into a new Google Sheet.
+   2. In the Sheet: File > Share > Publish to web > select the sheet,
+      choose "Comma-separated values (.csv)", press Publish, copy the link.
+   3. Paste that link between the quotes below and re-upload this file.
+   From then on, editing the Sheet updates the live map on next page load.
+   If the sheet is unreachable, the data baked in above is used instead. */
+const SHEET_URL = '';
+
+function parseCSV(text){
+  const rows=[]; let row=[], cur='', q=false;
+  for (let i=0;i<text.length;i++){
+    const ch=text[i];
+    if (q){
+      if (ch==='"'){ if (text[i+1]==='"'){ cur+='"'; i++; } else q=false; }
+      else cur+=ch;
+    }
+    else if (ch==='"') q=true;
+    else if (ch===','){ row.push(cur); cur=''; }
+    else if (ch==='\n'){ row.push(cur); cur=''; rows.push(row); row=[]; }
+    else if (ch!=='\r') cur+=ch;
+  }
+  if (cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+if (SHEET_URL){
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(()=>ctrl.abort(), 7000);
+    const res = await fetch(SHEET_URL, {signal:ctrl.signal});
+    clearTimeout(timer);
+    const rows = parseCSV(await res.text());
+    const head = rows.shift().map(h=>h.trim().toLowerCase());
+    const col = k => head.indexOf(k);
+    const fresh = rows
+      .filter(r => r.length > 2 && (r[col('name')]||'').trim())
+      .map((r,i) => ({
+        id: Number(r[col('id')]) || 900000+i,
+        name: r[col('name')].trim(),
+        url: (r[col('url')]||'').trim(),
+        desc: (r[col('desc')]||'').trim(),
+        loc: (r[col('loc')]||'').trim(),
+        lat: parseFloat(r[col('lat')]),
+        lng: parseFloat(r[col('lng')]),
+        cat: (r[col('cat')]||'experience').trim().toLowerCase(),
+        oow: /^(true|yes|1|x)$/i.test((r[col('oow')]||'').trim()),
+        country: (r[col('country')]||'').trim(),
+        img: (r[col('img')]||'').trim()
+      }))
+      .filter(e => isFinite(e.lat) && isFinite(e.lng));
+    if (fresh.length){
+      DATA.length = 0;
+      DATA.push(...fresh);
+      DATA.forEach(e => { if (e.cat === 'rewilding') e.cat = 'rewild'; if (!CATS[e.cat]) e.cat = 'experience'; });
+      $('facts').textContent = `${DATA.length} experiences · ${new Set(DATA.map(e=>e.country)).size} countries · one living world`;
+    }
+  } catch(err) { /* sheet unreachable: continue with baked-in data */ }
+}
+
 /* three.js as isolated ES module - powers the teardrop pin sprites.
    If it fails to load, the map falls back to simple dot markers. */
 let THREE = null;
